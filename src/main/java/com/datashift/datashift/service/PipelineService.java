@@ -1,6 +1,8 @@
 package com.datashift.datashift.service;
 
+import com.datashift.datashift.dto.ExecutionTrendResponse;
 import com.datashift.datashift.dto.PipelineLogResponse;
+import com.datashift.datashift.dto.PipelineMetricsResponse;
 import com.datashift.datashift.dto.PipelineRequest;
 import com.datashift.datashift.dto.PipelineResponse;
 import com.datashift.datashift.dto.PipelineRunResponse;
@@ -12,7 +14,10 @@ import com.datashift.datashift.repository.ConnectionRepository;
 import com.datashift.datashift.repository.PipelineLogRepository;
 import com.datashift.datashift.repository.PipelineRepository;
 import com.datashift.datashift.repository.PipelineRunRepository;
+import com.datashift.datashift.service.AlertService;
 import com.datashift.datashift.service.EncryptionService;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import jakarta.persistence.EntityNotFoundException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -22,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.*;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -34,15 +40,20 @@ public class PipelineService {
     private final PipelineRunRepository pipelineRunRepository;
     private final PipelineLogRepository pipelineLogRepository;
     private final EncryptionService encryptionService;
+    private final MeterRegistry meterRegistry;
+    private final AlertService alertService;
 
     public PipelineService(PipelineRepository pipelineRepository, ConnectionRepository connectionRepository,
                            PipelineRunRepository pipelineRunRepository, PipelineLogRepository pipelineLogRepository,
-                           EncryptionService encryptionService) {
+                           EncryptionService encryptionService, MeterRegistry meterRegistry,
+                           AlertService alertService) {
         this.pipelineRepository = pipelineRepository;
         this.connectionRepository = connectionRepository;
         this.pipelineRunRepository = pipelineRunRepository;
         this.pipelineLogRepository = pipelineLogRepository;
         this.encryptionService = encryptionService;
+        this.meterRegistry = meterRegistry;
+        this.alertService = alertService;
     }
 
     public PipelineResponse createPipeline(PipelineRequest request) {
@@ -153,6 +164,13 @@ public class PipelineService {
         PipelineRun run = pipelineRunRepository.findById(runId).orElse(null);
         if (run == null) return;
 
+        Long pipelineId = run.getPipeline().getId();
+        String pipelineName = run.getPipeline().getName();
+
+        // Record run start for metrics
+        meterRegistry.counter("pipelines.runs.total", "pipeline", pipelineName, "pipelineId", String.valueOf(pipelineId)).increment();
+        Timer.Sample sample = Timer.start(meterRegistry);
+
         try {
             updateRunStatus(run, "RUNNING", null);
             logRun(run, "INFO", "Starting pipeline execution");
@@ -185,10 +203,22 @@ public class PipelineService {
 
             updateRunStatus(run, "COMPLETED", null);
             logRun(run, "INFO", "Pipeline execution completed successfully");
+
+            // Success metrics
+            meterRegistry.counter("pipelines.runs.success", "pipeline", pipelineName, "pipelineId", String.valueOf(pipelineId)).increment();
+            long duration = sample.stop(meterRegistry.timer("pipelines.execution.duration", "pipeline", pipelineName));
+            meterRegistry.counter("pipelines.rows.transferred", "pipeline", pipelineName, "pipelineId", String.valueOf(pipelineId)).increment(extracted + loaded);
         } catch (Exception e) {
             updateRunStatus(run, "FAILED", e.getMessage());
             logRun(run, "ERROR", "Execution failed: " + e.getMessage());
+
+            // Failure metrics
+            meterRegistry.counter("pipelines.runs.failed", "pipeline", pipelineName, "pipelineId", String.valueOf(pipelineId)).increment();
+            sample.stop(meterRegistry.timer("pipelines.execution.duration", "pipeline", pipelineName));
         }
+
+        // Check for alerts after run completion/failure
+        alertService.checkAndTrigger(run);
     }
 
     private void updateRunStatus(PipelineRun run, String status, String error) {
@@ -298,6 +328,91 @@ public class PipelineService {
                 .active(pipeline.isActive())
                 .createdAt(pipeline.getCreatedAt())
                 .updatedAt(pipeline.getUpdatedAt())
+                .build();
+    }
+
+    // Observability metrics methods
+    public PipelineMetricsResponse getOverallMetrics() {
+        Long total = pipelineRunRepository.countTotalRuns();
+        Long success = pipelineRunRepository.countSuccessfulRuns();
+        Long failed = pipelineRunRepository.countFailedRuns();
+        Double avgDuration = pipelineRunRepository.getAverageDuration();
+        Long totalRows = pipelineRunRepository.getTotalRowsTransferred();
+        List<Object[]> statusList = pipelineRunRepository.getStatusCounts();
+        LocalDateTime lastRun = pipelineRunRepository.getLastRunAt();
+
+        Map<String, Long> statusCounts = new HashMap<>();
+        for (Object[] arr : statusList) {
+            statusCounts.put((String) arr[0], (Long) arr[1]);
+        }
+
+        return PipelineMetricsResponse.builder()
+                .totalRuns(total != null ? total : 0L)
+                .successfulRuns(success != null ? success : 0L)
+                .failedRuns(failed != null ? failed : 0L)
+                .averageDurationSeconds(avgDuration != null ? avgDuration : 0.0)
+                .totalRowsTransferred(totalRows != null ? totalRows : 0L)
+                .statusCounts(statusCounts)
+                .lastRunAt(lastRun)
+                .build();
+    }
+
+    public PipelineMetricsResponse getPipelineStats(Long pipelineId) {
+        // Check pipeline exists
+        pipelineRepository.findById(pipelineId)
+                .orElseThrow(() -> new EntityNotFoundException("Pipeline not found with id: " + pipelineId));
+
+        Long total = pipelineRunRepository.countTotalRunsForPipeline(pipelineId);
+        Long success = pipelineRunRepository.countSuccessfulRunsForPipeline(pipelineId);
+        Long failed = pipelineRunRepository.countFailedRunsForPipeline(pipelineId);
+        Double avgDuration = pipelineRunRepository.getAverageDurationForPipeline(pipelineId);
+        Long totalRows = pipelineRunRepository.getTotalRowsTransferredForPipeline(pipelineId);
+        List<Object[]> statusList = pipelineRunRepository.getStatusCountsForPipeline(pipelineId);
+        LocalDateTime lastRun = pipelineRunRepository.getLastRunAtForPipeline(pipelineId);
+
+        Map<String, Long> statusCounts = new HashMap<>();
+        for (Object[] arr : statusList) {
+            statusCounts.put((String) arr[0], (Long) arr[1]);
+        }
+
+        return PipelineMetricsResponse.builder()
+                .totalRuns(total != null ? total : 0L)
+                .successfulRuns(success != null ? success : 0L)
+                .failedRuns(failed != null ? failed : 0L)
+                .averageDurationSeconds(avgDuration != null ? avgDuration : 0.0)
+                .totalRowsTransferred(totalRows != null ? totalRows : 0L)
+                .statusCounts(statusCounts)
+                .lastRunAt(lastRun)
+                .build();
+    }
+
+    public List<ExecutionTrendResponse> getExecutionTrends(String granularity, Integer days) {
+        if (days == null) days = 7;
+        if (granularity == null || granularity.isEmpty()) granularity = "daily";
+        List<Object[]> results = pipelineRunRepository.getExecutionTrends(granularity, days);
+        return results.stream()
+                .map(this::mapToTrendResponse)
+                .collect(Collectors.toList());
+    }
+
+    private ExecutionTrendResponse mapToTrendResponse(Object[] row) {
+        String bucketStr = (String) row[0];
+        // Parse based on format from query
+        DateTimeFormatter formatter;
+        if (bucketStr.contains(":")) {
+            formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+        } else {
+            formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+        }
+        LocalDateTime timestamp = LocalDateTime.parse(bucketStr, formatter);
+        Long total = ((Number) row[1]).longValue();
+        Long success = ((Number) row[2]).longValue();
+        Long failed = ((Number) row[3]).longValue();
+        return ExecutionTrendResponse.builder()
+                .timestamp(timestamp)
+                .total(total)
+                .success(success)
+                .failed(failed)
                 .build();
     }
 }

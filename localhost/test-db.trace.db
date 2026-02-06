@@ -1,0 +1,18 @@
+2026-02-06 12:44:45.465966Z jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "SOURCE" not found (this database is empty); SQL statement:
+SELECT * FROM source-db [42104-224]
+2026-02-06 12:44:45.830639Z jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "SOURCE" not found (this database is empty); SQL statement:
+SELECT * FROM source-db [42104-224]
+2026-02-06 12:44:45.920159Z jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "SOURCE" not found (this database is empty); SQL statement:
+SELECT * FROM source-db [42104-224]
+2026-02-06 12:45:11.336128Z jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "SOURCE" not found (this database is empty); SQL statement:
+SELECT * FROM source-db [42104-224]
+2026-02-06 12:45:55.440214Z jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "SOURCE" not found (this database is empty); SQL statement:
+SELECT * FROM source-db [42104-224]
+2026-02-06 12:45:55.526292Z jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "SOURCE" not found (this database is empty); SQL statement:
+SELECT * FROM source-db [42104-224]
