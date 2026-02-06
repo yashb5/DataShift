@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="005" author="datashift">
+        <renameColumn tableName="pipeline_runs" oldColumnName="start_time" newColumnName="started_at" columnDataType="timestamp"/>
+        <renameColumn tableName="pipeline_runs" oldColumnName="end_time" newColumnName="completed_at" columnDataType="timestamp"/>
+        <addColumn tableName="pipeline_runs">
+            <column name="rows_extracted" type="bigint"/>
+            <column name="rows_loaded" type="bigint"/>
+        </addColumn>
+        <!-- rows_moved kept for backward if any -->
+    </changeSet>
+
+</databaseChangeLog>

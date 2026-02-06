@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog
+    xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                        http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-latest.xsd">
+
+    <changeSet id="004" author="datashift">
+        <createTable tableName="pipeline_logs">
+            <column name="id" type="bigint" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="pipeline_run_id" type="bigint">
+                <constraints nullable="false"/>
+            </column>
+            <column name="timestamp" type="timestamp"/>
+            <column name="log_level" type="varchar(20)"/>
+            <column name="message" type="text"/>
+        </createTable>
+
+        <addForeignKeyConstraint baseTableName="pipeline_logs"
+                                 baseColumnNames="pipeline_run_id"
+                                 constraintName="fk_pipeline_log_run"
+                                 referencedTableName="pipeline_runs"
+                                 referencedColumnNames="id"
+                                 onDelete="CASCADE"/>
+    </changeSet>
+
+</databaseChangeLog>
