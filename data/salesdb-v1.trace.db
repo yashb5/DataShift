@@ -1,0 +1,6 @@
+2026-02-05 14:12:23.225147Z jdbc[5]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "SOURCE" not found; SQL statement:
+SELECT * FROM source-sales [42102-224]
+2026-02-05 14:20:32.679276Z jdbc[3]: exception
+org.h2.jdbc.JdbcSQLSyntaxErrorException: Table "SALES" already exists; SQL statement:
+CREATE TABLE sales (id INT PRIMARY KEY, product_name VARCHAR(100), quantity INT, price DECIMAL(10,2)) [42101-224]
